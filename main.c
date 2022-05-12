@@ -1,10 +1,28 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <zlib.h>
 
 #define BUFFER 1024
 
+char *readFile(char *text) {
+    FILE *fp = fopen("test.txt", "r");
+
+    if (fp == NULL) {
+        perror("file not found");
+        exit(-1);
+    }
+
+    fgets(text, BUFFER, fp);
+
+    fclose(fp);
+
+    return text;
+}
+
+
 char *compressText(char *text, char *compressedText) {
+
     printf("Uncompressed string is: %s\n", text);
 
     z_stream defstream;
@@ -49,7 +67,8 @@ void decompressText(char *text) {
 }
 
 int main() {
-    char text[BUFFER] = "Hello Hello Hello Hello Hello Hello! Hello Hello Hello Hello Hello Hello! Hello Hello Hello Hello Hello Hello!";
+    char text[BUFFER] = "Hello Test. Hello Test. Hello Test!";
+
     char compressedText[BUFFER];
     char *cmp = compressText(text, compressedText);
     decompressText(cmp);
