@@ -1,77 +1,141 @@
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #include <stdlib.h>
-#include <zlib.h>
+#include "zlib.h"
 
-#define BUFFER 1024
+#if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
+#  include <fcntl.h>
+#  include <io.h>
+#  define SET_BINARY_MODE(file) setmode(fileno(file), O_BINARY)
+#else
+#  define SET_BINARY_MODE(file)
+#endif
 
-char *readFile(char *text) {
-    FILE *fp = fopen("test.txt", "r");
+#define CHUNK 16384
 
-    if (fp == NULL) {
-        perror("file not found");
-        exit(-1);
-    }
+int compressFile(FILE *source, FILE *dest, int level) {
+    int ret, flush;
+    unsigned have;
+    z_stream strm;
+    unsigned char in[CHUNK];
+    unsigned char out[CHUNK];
 
-    fgets(text, BUFFER, fp);
+    /* allocate deflate state */
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    ret = deflateInit(&strm, level);
+    if (ret != Z_OK)
+        return ret;
 
-    fclose(fp);
+    /* compress until end of file */
+    do {
+        strm.avail_in = fread(in, 1, CHUNK, source);
+        if (ferror(source)) {
+            (void) deflateEnd(&strm);
+            return Z_ERRNO;
+        }
+        flush = feof(source) ? Z_FINISH : Z_NO_FLUSH;
+        strm.next_in = in;
 
-    return text;
+        /* run deflate() on input until output buffer not full, finish
+           compression if all of source has been read in */
+        do {
+            strm.avail_out = CHUNK;
+            strm.next_out = out;
+
+            ret = deflate(&strm, flush);    /* no bad return value */
+            assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+
+            have = CHUNK - strm.avail_out;
+            if (fwrite(out, 1, have, dest) != have || ferror(dest)) {
+                (void) deflateEnd(&strm);
+                return Z_ERRNO;
+            }
+        } while (strm.avail_out == 0);
+        assert(strm.avail_in == 0);
+
+    } while (flush != Z_FINISH);
+    assert(ret == Z_STREAM_END);
+
+    (void) deflateEnd(&strm);
+    return Z_OK;
 }
 
+int decompressFile(FILE *source, FILE *dest) {
+    int ret;
+    unsigned have;
+    z_stream strm;
+    unsigned char in[CHUNK];
+    unsigned char out[CHUNK];
 
-char *compressText(char *text, char *compressedText) {
+    /* allocate inflate state */
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    strm.avail_in = 0;
+    strm.next_in = Z_NULL;
+    ret = inflateInit(&strm);
+    if (ret != Z_OK)
+        return ret;
 
-    printf("Uncompressed string is: %s\n", text);
+    /* decompress until deflate stream ends or end of file */
+    do {
+        strm.avail_in = fread(in, 1, CHUNK, source);
+        if (ferror(source)) {
+            (void) inflateEnd(&strm);
+            return Z_ERRNO;
+        }
+        if (strm.avail_in == 0)
+            break;
+        strm.next_in = in;
 
-    z_stream defstream;
-    defstream.zalloc = Z_NULL;
-    defstream.zfree = Z_NULL;
-    defstream.opaque = Z_NULL;
-    defstream.avail_in = (uInt) strlen(text) + 1; // size of input, string + terminator
-    defstream.next_in = (Bytef *) text; // input char array
-    defstream.avail_out = (uInt) sizeof(compressedText); // size of output
-    defstream.next_out = (Bytef *) compressedText; // output char array
+        /* run inflate() on input until output buffer not full */
+        do {
+            strm.avail_out = CHUNK;
+            strm.next_out = out;
 
-    // the actual compression work.
-    deflateInit(&defstream, Z_BEST_COMPRESSION);
-    deflate(&defstream, Z_FINISH);
-    deflateEnd(&defstream);
+            ret = inflate(&strm, Z_NO_FLUSH);
+            assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+            switch (ret) {
+                case Z_NEED_DICT:
+                    ret = Z_DATA_ERROR;     /* and fall through */
+                case Z_DATA_ERROR:
+                case Z_MEM_ERROR:
+                    (void) inflateEnd(&strm);
+                    return ret;
+            }
 
-    printf("Compressed string is: %s\n", compressedText);
+            have = CHUNK - strm.avail_out;
+            if (fwrite(out, 1, have, dest) != have || ferror(dest)) {
+                (void) inflateEnd(&strm);
+                return Z_ERRNO;
+            }
+        } while (strm.avail_out == 0);
+    } while (ret != Z_STREAM_END);
 
-    return compressedText;
-}
-
-void decompressText(char *text) {
-    char decompressedText[BUFFER];
-
-    z_stream defstream;
-    z_stream infstream;
-    infstream.zalloc = Z_NULL;
-    infstream.zfree = Z_NULL;
-    infstream.opaque = Z_NULL;
-    infstream.avail_in = (uInt) ((char *) defstream.next_out - text); // size of input
-    infstream.next_in = (Bytef *) text; // input char array
-    infstream.avail_out = (uInt) sizeof(decompressedText); // size of output
-    infstream.next_out = (Bytef *) decompressedText; // output char array
-
-    // the actual DE-compression work.
-    inflateInit(&infstream);
-    inflate(&infstream, Z_NO_FLUSH);
-    inflateEnd(&infstream);
-
-    printf("Uncompressed string is: %s\n", decompressedText);
-
+    (void) inflateEnd(&strm);
+    return ret == Z_STREAM_END ? Z_OK : Z_DATA_ERROR;
 }
 
 int main() {
-    char text[BUFFER] = "Hello Test. Hello Test. Hello Test!";
+    FILE *fpIn = fopen("test.txt", "r");
+    FILE *fpOut = fopen("encoded.bin", "wb");
 
-    char compressedText[BUFFER];
-    char *cmp = compressText(text, compressedText);
-    decompressText(cmp);
+    /* compression level from 1-9 (worst to best) */
+    compressFile(fpIn, fpOut, 9);
+
+    fclose(fpIn);
+    fclose(fpOut);
+
+    FILE *fpEncoded = fopen("encoded.bin", "rb");
+    FILE *fpDecoded = fopen("decoded.txt", "w");
+
+    decompressFile(fpEncoded, fpDecoded);
+
+    fclose(fpEncoded);
+    fclose(fpDecoded);
 
     return 0;
 }
