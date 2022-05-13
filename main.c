@@ -1,8 +1,6 @@
 #include <stdio.h>
-#include <string.h>
 #include <assert.h>
-#include <stdlib.h>
-#include "zlib.h"
+#include <zlib.h>
 
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
