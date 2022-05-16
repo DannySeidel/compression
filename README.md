@@ -2,7 +2,7 @@
 
 This project contains a main file with two functions.
 One to compress a file and a second to decompress encoded file.
-For shorter code [(Zlib)](https://www.zlib.net) was used.
+For shorter code [Zlib](https://www.zlib.net) was used.
 
 ## Installation
 
