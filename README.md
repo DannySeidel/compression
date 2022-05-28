@@ -1,5 +1,8 @@
 # Compression
 
+![CLion](https://img.shields.io/badge/CLion-black?style=for-the-badge&logo=clion&logoColor=white)
+![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
+
 This project contains a main file with two functions.
 One to compress a file and a second to decompress encoded file.
 For shorter code [Zlib](https://www.zlib.net) was used.
